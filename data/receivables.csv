@@ -1,0 +1,21 @@
+receivable_id,customer,amount,due_date,status
+REC-3000,Tarun Auto Parts,13673.30,2026-07-30,outstanding
+REC-3001,Kavya Interiors,198035.74,2026-08-11,outstanding
+REC-3002,Meera Motors,1509.45,2026-07-06,outstanding
+REC-3003,Aarav Textiles,8379.69,2026-07-03,outstanding
+REC-3004,Bansal Traders,17806.42,2026-08-19,outstanding
+REC-3005,Bansal Traders,5959.21,2026-06-07,outstanding
+REC-3006,Aarav Textiles,1021.05,2026-08-16,outstanding
+REC-3007,Ravi Traders,3658.41,2026-08-12,outstanding
+REC-3008,Aarav Textiles,3477.49,2026-08-19,outstanding
+REC-3009,Tarun Auto Parts,7743.27,2026-08-07,outstanding
+REC-3010,Quantum Solutions,33830.09,2026-07-10,outstanding
+REC-3011,Prakash Paints,1398.87,2026-08-28,outstanding
+REC-3012,Ganga Stationers,13195.12,2026-08-21,outstanding
+REC-3013,Prakash Paints,76615.29,2026-08-21,outstanding
+REC-3014,Aarav Textiles,900.51,2026-08-08,outstanding
+REC-3015,Prakash Paints,905.37,2026-08-20,outstanding
+REC-3016,Devika Foods,73325.26,2026-07-23,outstanding
+REC-3017,Indus Apparel,6996.18,2026-08-06,outstanding
+REC-3018,Jyoti Enterprises,18535.33,2026-08-29,outstanding
+REC-3019,Devika Foods,91771.90,2026-08-12,outstanding
