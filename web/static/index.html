@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FinPilot</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --paper: #f6f7f4; --paper-raised: #ffffff; --ink: #1a2420; --ink-soft: #515d55; --ink-faint: #7c877e;
+    --accent: #1d4e5f; --accent-soft: #dceae6; --rule: #d8ddd5; --rule-strong: #b9c2ba;
+    --good: #2f7d5a; --good-soft: #e3f1e8; --warn: #a8681e; --warn-soft: #fbeedd;
+    --bad: #a83f3f; --bad-soft: #fbe7e5; --shadow: 0 1px 2px rgba(26,36,32,.06), 0 8px 24px rgba(26,36,32,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper:#111712; --paper-raised:#171f19; --ink:#e9ece7; --ink-soft:#a9b3ac; --ink-faint:#7c877e;
+      --accent:#74bcc7; --accent-soft:#1d3638; --rule:#2a342e; --rule-strong:#3a473e;
+      --good:#67c295; --good-soft:#17301f; --warn:#e0a857; --warn-soft:#3a2c14;
+      --bad:#e08585; --bad-soft:#3a1e1e; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:'Public Sans',system-ui,sans-serif;
+    font-size:15px; line-height:1.55; }
+  .wrap { max-width:1100px; margin:0 auto; padding:36px 24px 80px; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px;
+    padding-bottom:20px; border-bottom:1px solid var(--rule); margin-bottom:28px; }
+  h1 { font-family:'Source Serif 4',Georgia,serif; font-size:2rem; margin:0; }
+  header p { margin:4px 0 0; color:var(--ink-soft); max-width:52ch; }
+  .pill { font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:5px 10px; border-radius:3px;
+    border:1px solid var(--rule-strong); background:var(--paper-raised); color:var(--ink-soft); white-space:nowrap; }
+  .pill.on { border-color:var(--good); color:var(--good); }
+  .pill.off { border-color:var(--warn); color:var(--warn); }
+  h2 { font-family:'Source Serif 4',Georgia,serif; font-size:1.2rem; margin:0 0 12px; }
+  section { margin-bottom:36px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:28px; }
+  .card { background:var(--paper-raised); border:1px solid var(--rule); border-radius:8px; padding:16px 18px;
+    box-shadow:var(--shadow); }
+  .card .label { font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--ink-faint); }
+  .card .value { font-family:'IBM Plex Mono',monospace; font-size:1.5rem; font-weight:600; margin-top:6px;
+    font-variant-numeric:tabular-nums; }
+  .card .value.good { color:var(--good); } .card .value.warn { color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th { text-align:left; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.06em;
+    text-transform:uppercase; color:var(--ink-faint); padding:7px 10px; border-bottom:1px solid var(--rule-strong); }
+  td { padding:9px 10px; border-bottom:1px solid var(--rule); font-variant-numeric:tabular-nums; }
+  .table-card { background:var(--paper-raised); border:1px solid var(--rule); border-radius:8px; overflow-x:auto;
+    box-shadow:var(--shadow); }
+  .chip { font-family:'IBM Plex Mono',monospace; font-size:10.5px; padding:2px 7px; border-radius:3px; }
+  .chip.good{background:var(--good-soft);color:var(--good)} .chip.warn{background:var(--warn-soft);color:var(--warn)}
+  .chip.bad{background:var(--bad-soft);color:var(--bad)} .chip.muted{background:var(--rule);color:var(--ink-faint)}
+  button { font-family:'Public Sans',sans-serif; font-weight:600; font-size:13.5px; border:1px solid var(--accent);
+    background:var(--accent); color:#fff; padding:8px 14px; border-radius:5px; cursor:pointer; }
+  button.secondary { background:var(--paper-raised); color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.danger { background:var(--bad); border-color:var(--bad); }
+  input[type=checkbox] { accent-color:var(--accent); margin-right:6px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .panel { background:var(--paper-raised); border:1px solid var(--rule); border-radius:8px; padding:18px 20px;
+    box-shadow:var(--shadow); }
+  #chat-log { display:flex; flex-direction:column; gap:10px; margin-bottom:14px; max-height:340px; overflow-y:auto; }
+  .msg { padding:10px 13px; border-radius:6px; font-size:14px; max-width:80%; white-space:pre-wrap; }
+  .msg.user { align-self:flex-end; background:var(--accent-soft); color:var(--accent); }
+  .msg.bot { align-self:flex-start; background:var(--paper); border:1px solid var(--rule); }
+  #chat-form { display:flex; gap:8px; }
+  #chat-input { flex:1; padding:9px 12px; border:1px solid var(--rule-strong); border-radius:5px;
+    background:var(--paper); color:var(--ink); font-family:inherit; font-size:14px; }
+  .muted { color:var(--ink-soft); font-size:13.5px; }
+  .draft { background:var(--paper); border:1px dashed var(--rule-strong); border-radius:6px; padding:10px 12px;
+    margin-top:8px; font-size:13.5px; }
+  .draft .msgtext { font-style:italic; color:var(--ink-soft); margin-top:4px; }
+  #confirm-row { display:none; align-items:center; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--rule); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>FinPilot</h1>
+      <p>Live view of a real reconciliation run — read the <a href="https://github.com/DivyanshiBajpai2007/finpilot" style="color:var(--accent)">source</a> for how every number is computed.</p>
+    </div>
+    <span id="health-pill" class="pill">checking agent…</span>
+  </header>
+
+  <section>
+    <div class="cards" id="summary-cards"><span class="muted">Loading…</span></div>
+  </section>
+
+  <section>
+    <h2>Reconciliation exceptions</h2>
+    <div class="table-card">
+      <table>
+        <thead><tr><th>Order</th><th>Category</th><th>Resolution</th><th>Δ</th><th>Note</th></tr></thead>
+        <tbody id="exceptions-body"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cash-flow forecast</h2>
+    <div class="cards" id="cashflow-cards"><span class="muted">Loading…</span></div>
+  </section>
+
+  <section>
+    <h2>Outstanding receivables</h2>
+    <div class="table-card">
+      <table>
+        <thead><tr><th></th><th>ID</th><th>Customer</th><th>Amount</th><th>Overdue</th><th>Tier</th><th>Expected value</th></tr></thead>
+        <tbody id="receivables-body"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="simulate-btn">Simulate recovering selected</button>
+      <button id="draft-btn" class="secondary">Draft reminders for selected</button>
+      <span id="sim-result" class="muted"></span>
+    </div>
+    <div id="drafts"></div>
+    <div id="confirm-row">
+      <label><input type="checkbox" id="confirm-check"> I've reviewed these drafts and approve sending them</label>
+      <button id="send-btn" disabled>Send (simulated)</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ask FinPilot</h2>
+    <div class="panel">
+      <div id="chat-log"></div>
+      <form id="chat-form">
+        <input id="chat-input" placeholder="e.g. why is ORD-2004 an exception?" autocomplete="off">
+        <button type="submit">Ask</button>
+      </form>
+      <p class="muted" id="chat-hint" style="margin-top:8px"></p>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const inr = (n) => '₹' + Number(n).toLocaleString('en-IN', {maximumFractionDigits: 0});
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || res.statusText);
+  return body;
+}
+
+async function loadHealth() {
+  try {
+    const h = await api('/api/health');
+    $('health-pill').textContent = h.gemini_configured ? 'agent: live' : 'agent: no key (fallback only)';
+    $('health-pill').className = 'pill ' + (h.gemini_configured ? 'on' : 'off');
+    $('chat-hint').textContent = h.gemini_configured
+      ? 'Live via Gemini, rate-limited to 8 questions/minute.'
+      : 'GEMINI_API_KEY not set on the server — ask endpoint is unavailable.';
+  } catch (e) { $('health-pill').textContent = 'agent: unknown'; }
+}
+
+async function loadSummary() {
+  const s = await api('/api/summary');
+  $('summary-cards').innerHTML = `
+    <div class="card"><div class="label">Match rate</div><div class="value good">${s.match_rate_pct}%</div></div>
+    <div class="card"><div class="label">Matched</div><div class="value">${s.matched} / ${s.total_records}</div></div>
+    <div class="card"><div class="label">Exceptions</div><div class="value warn">${s.exceptions}</div></div>
+    <div class="card"><div class="label">Needs review</div><div class="value">${s.exceptions_by_resolution.needs_review || 0}</div></div>
+  `;
+}
+
+async function loadExceptions() {
+  const e = await api('/api/exceptions?limit=15');
+  $('exceptions-body').innerHTML = e.exceptions.map(x => `
+    <tr><td>${x.order_ref}</td><td>${x.category}</td>
+    <td><span class="chip ${x.resolution === 'resolved_automatically' ? 'good' : x.resolution === 'needs_review' ? 'warn' : 'muted'}">${x.resolution}</span></td>
+    <td>₹${Number(x.delta).toLocaleString('en-IN')}</td><td class="muted">${x.note}</td></tr>
+  `).join('');
+}
+
+async function loadCashflow() {
+  const c = await api('/api/cashflow');
+  const snaps = Object.entries(c.snapshots).map(([k, v]) =>
+    `<div class="card"><div class="label">${k}</div><div class="value ${v < 0 ? 'warn' : ''}">${inr(v)}</div></div>`
+  ).join('');
+  const shortfall = c.shortfall_in_days != null
+    ? `<div class="card"><div class="label">Shortfall</div><div class="value warn">${c.shortfall_date} (+${c.shortfall_in_days}d)</div></div>` : '';
+  $('cashflow-cards').innerHTML = snaps + shortfall;
+}
+
+let receivablesCache = [];
+async function loadReceivables() {
+  const r = await api('/api/receivables?limit=10');
+  receivablesCache = r.top;
+  $('receivables-body').innerHTML = r.top.map(x => `
+    <tr><td><input type="checkbox" class="recv-check" value="${x.receivable_id}"></td>
+    <td>${x.receivable_id}</td><td>${x.customer}</td><td>${inr(x.amount)}</td>
+    <td>${x.days_overdue}d</td>
+    <td><span class="chip ${x.tier === 'high' ? 'good' : x.tier === 'medium' ? 'warn' : 'muted'}">${x.tier}</span></td>
+    <td>${inr(x.expected_value)}</td></tr>
+  `).join('');
+}
+
+function selectedIds() {
+  return Array.from(document.querySelectorAll('.recv-check:checked')).map(c => c.value);
+}
+
+$('simulate-btn').onclick = async () => {
+  const ids = selectedIds();
+  if (!ids.length) { $('sim-result').textContent = 'Select at least one receivable first.'; return; }
+  $('sim-result').textContent = 'Simulating…';
+  try {
+    const r = await api('/api/simulate-recovery', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({receivable_ids: ids}),
+    });
+    const ext = r.runway_extension_days;
+    $('sim-result').textContent = `Recovering ${inr(r.recovered_amount)} moves the shortfall to ${r.scenario_shortfall ? r.scenario_shortfall.date : 'beyond horizon'} (${typeof ext === 'number' ? '+' + ext + ' days' : ext}).`;
+  } catch (e) { $('sim-result').textContent = 'Error: ' + e.message; }
+};
+
+$('draft-btn').onclick = async () => {
+  const ids = selectedIds();
+  if (!ids.length) { $('sim-result').textContent = 'Select at least one receivable first.'; return; }
+  const r = await api('/api/recovery/draft', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({receivable_ids: ids}),
+  });
+  $('drafts').innerHTML = r.drafts.map(d => `
+    <div class="draft"><strong>${d.customer}</strong> — ${inr(d.amount)}, ${d.days_overdue}d overdue
+    <div class="msgtext">"${d.message}"</div></div>
+  `).join('');
+  $('confirm-row').style.display = 'flex';
+  $('confirm-check').checked = false;
+  $('send-btn').disabled = true;
+  $('send-btn').dataset.ids = JSON.stringify(ids);
+};
+
+$('confirm-check').onchange = (e) => { $('send-btn').disabled = !e.target.checked; };
+
+$('send-btn').onclick = async () => {
+  const ids = JSON.parse($('send-btn').dataset.ids || '[]');
+  try {
+    const r = await api('/api/recovery/send', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({receivable_ids: ids, confirm: true}),
+    });
+    $('drafts').innerHTML += `<p class="muted">${r.note}</p>`;
+    $('confirm-row').style.display = 'none';
+  } catch (e) { alert('Error: ' + e.message); }
+};
+
+$('chat-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $('chat-input').value.trim();
+  if (!q) return;
+  $('chat-log').innerHTML += `<div class="msg user">${q}</div>`;
+  $('chat-input').value = '';
+  const thinking = document.createElement('div');
+  thinking.className = 'msg bot'; thinking.textContent = '…';
+  $('chat-log').appendChild(thinking);
+  $('chat-log').scrollTop = $('chat-log').scrollHeight;
+  try {
+    const r = await api('/api/ask', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: q}),
+    });
+    thinking.textContent = r.answer;
+  } catch (err) { thinking.textContent = 'Error: ' + err.message; }
+  $('chat-log').scrollTop = $('chat-log').scrollHeight;
+};
+
+loadHealth();
+loadSummary().catch(e => $('summary-cards').innerHTML = `<span class="muted">Error: ${e.message}</span>`);
+loadExceptions().catch(e => $('exceptions-body').innerHTML = `<tr><td colspan="5">Error: ${e.message}</td></tr>`);
+loadCashflow().catch(e => $('cashflow-cards').innerHTML = `<span class="muted">Error: ${e.message}</span>`);
+loadReceivables().catch(e => $('receivables-body').innerHTML = `<tr><td colspan="7">Error: ${e.message}</td></tr>`);
+</script>
+</body>
+</html>

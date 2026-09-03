@@ -33,6 +33,25 @@ python agent/controller.py --ask "What's our cash position over the next 90 days
 python agent/recovery.py --top 3          # interactive y/N approval gate
 ```
 
+## Web dashboard
+
+`web/app.py` is a thin FastAPI layer over the exact same modules used by the CLI — no duplicated logic. It serves a live dashboard (reconciliation summary, exceptions, cash forecast, receivables) plus the conversational agent, and keeps the same governance model: `simulate_recovery` is read-only, and actually recording a "sent" reminder requires an explicit `confirm: true` the frontend only sends after a human checks a confirmation box.
+
+Run it locally:
+
+```bash
+pip install -r requirements.txt
+uvicorn web.app:app --reload --port 8710
+```
+
+**Deploy (Render, free tier):**
+
+1. [Deploy to Render](https://render.com/deploy?repo=https://github.com/DivyanshiBajpai2007/finpilot) — this repo includes `render.yaml`, which Render auto-detects. If the button doesn't pick it up, create a new **Web Service** manually, connect this repo, and Render should read the blueprint automatically.
+2. In the service's **Environment** tab, add `GEMINI_API_KEY` with your key — `render.yaml` deliberately leaves it unset (`sync: false`) so it's never stored in the repo.
+3. Deploy. The dashboard and API are served from the same URL Render gives you; `/api/health` reports whether the agent found a key.
+
+The `/api/ask` endpoint is rate-limited (8 requests/minute per IP) since it's the only route that spends real API credit — everything else reads cached CSVs from a real run.
+
 ## Architecture
 
 ```
@@ -92,5 +111,5 @@ Exception categories are never silently dropped — every one is written to the 
 ## Honest limitations
 
 - No real messaging integration — `recovery.py`'s "sent" state is logged, not actually transmitted. The approval gate and audit trail are real; the delivery channel is not.
-- No web front end yet — everything here is a runnable CLI/backend. A React dashboard is the natural next layer on top of these same modules.
+- The web dashboard (`web/`) is a functional single-page app, not a polished production frontend — it's vanilla HTML/JS calling the FastAPI layer, built to demonstrate the real system rather than to be a finished product.
 - The synthetic dataset is generated with deliberately correlated noise (fees, settlement lag, duplicates, missing records), not independently randomized — but it is still synthetic, not real transaction data.
