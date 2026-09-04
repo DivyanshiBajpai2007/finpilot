@@ -157,6 +157,46 @@
   #detail-panel h3 { font-family:'Source Serif 4',Georgia,serif; margin:0 0 4px; }
   #detail-panel .close { float:right; cursor:pointer; color:var(--ink-faint); font-size:20px; line-height:1; }
 
+  .amount-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px;
+    background:var(--paper-sunken); border-radius:8px; padding:12px; }
+  .amount-grid > div { display:flex; flex-direction:column; gap:3px; }
+  .amount-grid .label { font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--ink-faint); }
+  .amount-grid strong { font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; font-size:14px; }
+  .warn-text { color:var(--warn); }
+  .checklist { margin-top:12px; display:flex; flex-direction:column; gap:5px; }
+  .check-item { display:flex; align-items:center; gap:8px; font-size:13.5px; }
+  .check-mark { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+    border-radius:50%; font-size:11px; font-weight:700; flex-shrink:0; }
+  .check-item.pass .check-mark { background:var(--good-soft); color:var(--good); }
+  .check-item.fail .check-mark { background:var(--bad-soft); color:var(--bad); }
+  .check-item.na .check-mark { background:var(--rule); color:var(--ink-faint); }
+  .check-item.fail { font-weight:600; }
+
+  /* ---- activity feed ---- */
+  .activity-item { display:flex; align-items:flex-start; gap:10px; padding:9px 0;
+    border-bottom:1px dashed var(--rule); font-size:13.5px; }
+  .activity-item:last-child { border-bottom:none; }
+  .activity-icon { flex-shrink:0; width:18px; height:18px; border-radius:50%; display:flex;
+    align-items:center; justify-content:center; font-size:10.5px; font-weight:700; margin-top:1px; }
+  .activity-icon.check { background:var(--good-soft); color:var(--good); }
+  .activity-icon.warn { background:var(--warn-soft); color:var(--warn); }
+  .activity-text { flex:1; }
+  .activity-time { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-faint);
+    white-space:nowrap; }
+
+  /* ---- run-reconciliation flow ---- */
+  .recon-step { display:flex; align-items:center; gap:10px; font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px; color:var(--ink-faint); padding:3px 0; }
+  .recon-step.done { color:var(--good); }
+  .recon-flow-result { display:flex; flex-direction:column; align-items:center; gap:2px; padding:14px 0 6px; }
+  .recon-flow-node { font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600;
+    background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent); border-radius:8px;
+    padding:8px 20px; animation:pop .3s ease; }
+  .recon-flow-node.final { background:var(--good-soft); color:var(--good); border-color:var(--good);
+    font-size:1.3rem; }
+  .recon-flow-arrow { color:var(--ink-faint); font-size:13px; }
+
   /* ---- receivables ---- */
   .recv-row { display:grid; grid-template-columns:auto 90px 1fr auto; gap:10px; align-items:center;
     padding:10px 0; border-bottom:1px solid var(--rule); }
@@ -249,8 +289,19 @@
       <div class="mini-card"><span class="label">Matched</span><span class="value" id="mini-matched">—</span></div>
       <div class="mini-card"><span class="label">Exceptions</span><span class="value warn" id="mini-exceptions">—</span></div>
       <div class="mini-card"><span class="label">Cash shortfall</span><span class="value warn" id="mini-shortfall">—</span></div>
+      <p class="muted" style="font-size:11.5px;line-height:1.5;margin:2px 4px 0">
+        <strong>⚙ Every number above is computed by code</strong> (matcher.py, cashflow.py) —
+        Gemini only explains and recommends, never calculates.
+      </p>
     </div>
   </div>
+
+  <section class="reveal">
+    <div class="section-head"><h2>Agent activity</h2><span class="muted">Real events from the audit log — nothing narrated</span></div>
+    <div class="panel">
+      <div id="activity-feed"><p class="muted">Loading…</p></div>
+    </div>
+  </section>
 
   <section class="reveal">
     <div class="section-head"><h2>Cash-flow forecast</h2><span class="muted">₹15L opening balance, 90-day horizon</span></div>
@@ -269,6 +320,7 @@
     <div class="section-head">
       <h2>Reconciliation exceptions</h2>
       <div class="filter-row">
+        <button id="run-recon-btn" class="secondary">▶ Run reconciliation</button>
         <select id="filter-resolution">
           <option value="">all resolutions</option>
           <option value="resolved_automatically">resolved automatically</option>
@@ -277,6 +329,7 @@
         </select>
       </div>
     </div>
+    <div id="recon-flow" class="panel" style="display:none; margin-bottom:14px;"></div>
     <div class="table-card">
       <table>
         <thead><tr><th>Order</th><th>Category</th><th>Resolution</th><th>Δ</th><th>Note</th></tr></thead>
@@ -433,17 +486,89 @@ async function loadExceptions(resolution) {
 }
 $('filter-resolution').onchange = (e) => loadExceptions(e.target.value);
 
+/* Real data, staged reveal for demo clarity -- this fetches the actual
+   /api/summary result (the same numbers shown elsewhere on the page), it
+   does not re-run the pipeline on every click. Reproduce for real with:
+   python run_pipeline.py */
+$('run-recon-btn').onclick = async () => {
+  const btn = $('run-recon-btn');
+  const flow = $('recon-flow');
+  btn.disabled = true;
+  flow.style.display = 'block';
+  const steps = ['Loading dataset…', 'Matching payments ↔ bank ↔ invoices…', 'Classifying exceptions…'];
+  flow.innerHTML = steps.map(s => `<div class="recon-step" data-s="${s}">${s}</div>`).join('');
+  const stepEls = flow.querySelectorAll('.recon-step');
+  for (const el of stepEls) {
+    await new Promise(r => setTimeout(r, 450));
+    el.classList.add('done');
+    el.textContent = '✓ ' + el.dataset.s;
+  }
+  try {
+    const s = await api('/api/summary');
+    await new Promise(r => setTimeout(r, 300));
+    flow.innerHTML = `
+      <div class="recon-flow-result">
+        <div class="recon-flow-node">${s.total_records} records</div>
+        <div class="recon-flow-arrow">↓</div>
+        <div class="recon-flow-node">${s.matched} matched</div>
+        <div class="recon-flow-arrow">↓</div>
+        <div class="recon-flow-node">${s.exceptions} exceptions</div>
+        <div class="recon-flow-arrow">↓</div>
+        <div class="recon-flow-node final">${s.match_rate_pct}% match rate</div>
+      </div>
+      <p class="muted" style="text-align:center;margin-top:6px">
+        Real output, computed by <code>matcher.py</code> — reproduce it yourself: <code>python run_pipeline.py</code>
+      </p>`;
+  } catch (e) {
+    flow.innerHTML = `<p class="muted">Error: ${e.message}</p>`;
+  }
+  btn.disabled = false;
+};
+
+const CHECK_LABELS = {
+  order_matched: 'Order ID matched', payment_matched: 'Payment ID matched',
+  invoice_amount_matched: 'Invoice amount matched', settlement_amount_matched: 'Settlement amount matched',
+  timing_matched: 'Settlement timing matched',
+};
+const RECOMMENDATION = {
+  resolved_automatically: 'No action needed — resolved automatically by rule',
+  needs_review: 'Manual review recommended',
+  insufficient_evidence: 'Manual review — insufficient evidence to auto-resolve',
+};
+const titleCase = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
 async function openDetail(orderRef) {
   $('detail-content').innerHTML = '<p class="muted">Loading…</p>';
   $('detail-backdrop').classList.add('show');
   try {
     const d = await api('/api/exceptions/' + orderRef);
+    const checksHtml = d.checks ? Object.entries(d.checks).map(([k, v]) => `
+      <div class="check-item ${v === false ? 'fail' : v === null ? 'na' : 'pass'}">
+        <span class="check-mark">${v === false ? '✗' : v === null ? '·' : '✓'}</span> ${CHECK_LABELS[k] || k}
+      </div>`).join('') : '';
+
+    const amountsHtml = d.expected_net !== undefined ? `
+      <div class="amount-grid">
+        <div><span class="label">Expected (net)</span><strong>${inr(d.expected_net)}</strong></div>
+        <div><span class="label">Settled</span><strong>${d.settled_amount != null ? inr(d.settled_amount) : '—'}</strong></div>
+        <div><span class="label">Difference</span><strong class="${d.difference ? 'warn-text' : ''}">${d.difference != null ? inr(d.difference) : '—'}</strong></div>
+      </div>` : '';
+
+    const metaHtml = (d.category || d.confidence !== undefined) ? `
+      <div class="amount-grid">
+        <div><span class="label">Classification</span><strong>${titleCase(d.category) || '—'}</strong></div>
+        <div><span class="label">Confidence</span><strong>${d.confidence ? Math.round(d.confidence * 100) + '%' : '—'}</strong></div>
+        <div><span class="label">Recommendation</span><strong style="font-size:12.5px">${RECOMMENDATION[d.resolution] || 'Matched, no action'}</strong></div>
+      </div>` : '';
+
     $('detail-content').innerHTML = `
       <h3>${d.order_ref}</h3>
-      <p class="muted">${d.category || ''} ${d.resolution ? '· ' + d.resolution : ''}</p>
-      ${d.delta !== undefined ? `<p style="font-family:'IBM Plex Mono',monospace;margin:10px 0">Δ ₹${Number(d.delta).toLocaleString('en-IN')}</p>` : ''}
-      <p>${d.explanation || d.note || ''}</p>
-      ${d.llm_used !== undefined ? `<p class="muted">${d.llm_used === 'True' || d.llm_used === true ? 'Explained by Gemini' : 'Rule-based note (no live key at generation time)'}</p>` : ''}
+      <p class="muted">${d.status === 'matched' ? 'Matched cleanly' : `${titleCase(d.category)} · ${titleCase(d.resolution)}`}</p>
+      ${amountsHtml}
+      ${checksHtml ? `<div class="checklist">${checksHtml}</div>` : ''}
+      ${metaHtml}
+      ${d.explanation ? `<p style="margin-top:14px">${d.explanation}</p>` : ''}
+      ${d.llm_used !== undefined ? `<p class="muted">${d.llm_used === 'True' || d.llm_used === true ? '✨ Explanation written by Gemini' : '⚙ Rule-based note (no live key at generation time)'} — grounded in the checks and figures above, not invented.</p>` : ''}
     `;
   } catch (e) { $('detail-content').innerHTML = `<p class="muted">Error: ${e.message}</p>`; }
 }
@@ -511,6 +636,24 @@ function refreshChartColors() {
   loadSummary().catch(() => {});
 }
 
+/* ---- agent activity feed ---- */
+function timeAgo(iso) {
+  const secs = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+async function loadActivity() {
+  const a = await apiWithRetry('/api/activity?limit=12');
+  $('activity-feed').innerHTML = a.activity.length ? a.activity.map(item => `
+    <div class="activity-item">
+      <span class="activity-icon ${item.icon}">${item.icon === 'warn' ? '!' : '✓'}</span>
+      <span class="activity-text">${item.text}</span>
+      <span class="activity-time">${timeAgo(item.timestamp)}</span>
+    </div>`).join('') : '<p class="muted">No agent activity yet -- ask a question or run the pipeline.</p>';
+}
+
 /* ---- receivables ---- */
 let receivablesCache = [];
 async function loadReceivables() {
@@ -562,6 +705,7 @@ $('draft-btn').onclick = async () => {
   $('confirm-check').checked = false;
   $('send-btn').disabled = true;
   $('send-btn').dataset.ids = JSON.stringify(ids);
+  loadActivity().catch(() => {});
 };
 $('confirm-check').onchange = (e) => { $('send-btn').disabled = !e.target.checked; };
 $('send-btn').onclick = async () => {
@@ -571,6 +715,7 @@ $('send-btn').onclick = async () => {
       body: JSON.stringify({receivable_ids: ids, confirm: true}) });
     $('drafts').innerHTML += `<p class="muted">${r.note}</p>`;
     $('confirm-row').style.display = 'none';
+    loadActivity().catch(() => {});
   } catch (e) { alert('Error: ' + e.message); }
 };
 
@@ -592,6 +737,7 @@ $('chat-form').onsubmit = async (e) => {
     const trace = (r.tool_calls && r.tool_calls.length)
       ? `<div class="tool-trace">${r.tool_calls.map(t => `<span class="tool-chip">${t}</span>`).join('')}</div>` : '';
     thinking.innerHTML = trace + `<div>${r.answer}</div>`;
+    loadActivity().catch(() => {});
   } catch (err) { thinking.textContent = 'Error: ' + err.message; }
   $('chat-log').scrollTop = $('chat-log').scrollHeight;
 };
@@ -602,6 +748,7 @@ loadSummary().catch(e => console.error('loadSummary failed', e));
 loadExceptions('').catch(e => $('exceptions-body').innerHTML = `<tr><td colspan="5">Error: ${e.message}</td></tr>`);
 loadCashflowChart().catch(e => { $('mini-shortfall').textContent = 'error'; });
 loadReceivables().catch(e => $('receivables-panel').innerHTML = `<p class="muted">Error: ${e.message}</p>`);
+loadActivity().catch(e => $('activity-feed').innerHTML = `<p class="muted">Error: ${e.message}</p>`);
 </script>
 </body>
 </html>

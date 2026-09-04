@@ -16,16 +16,15 @@ Usage:
 """
 import argparse
 import csv
-import json
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from receivables.ranking import load_receivables, rank  # noqa: E402
+from agent.audit import log_audit  # noqa: E402
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-AUDIT_LOG = DATA_DIR / "audit_log.jsonl"
 SENT_LOG = DATA_DIR / "sent_reminders.csv"
 
 
@@ -37,13 +36,6 @@ def draft_message(receivable: dict) -> str:
         f"Please arrange payment at your earliest convenience, or reply if you'd "
         f"like to discuss a payment plan."
     )
-
-
-def log_audit(entry: dict):
-    AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    entry = {"timestamp": datetime.now(timezone.utc).isoformat(), **entry}
-    with AUDIT_LOG.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
 
 
 def append_sent_log(rows: list[dict]):
@@ -90,7 +82,7 @@ def main():
         print(f"    \"{draft_message(r)}\"\n")
 
     log_audit({
-        "action": "recovery_reminders_drafted",
+        "type": "recovery", "action": "recovery_reminders_drafted",
         "receivables": [r["receivable_id"] for r in selected],
         "total_amount": round(sum(r["amount"] for r in selected), 2),
     })
@@ -104,7 +96,7 @@ def main():
 
     if not approved:
         print("\nNot sent. Nothing recorded as sent; drafting is still in the audit log.")
-        log_audit({"action": "recovery_reminders_rejected",
+        log_audit({"type": "recovery", "action": "recovery_reminders_rejected",
                     "receivables": [r["receivable_id"] for r in selected]})
         return
 
@@ -115,7 +107,7 @@ def main():
         for r in selected
     ])
     log_audit({
-        "action": "recovery_reminders_sent",
+        "type": "recovery", "action": "recovery_reminders_sent",
         "receivables": [r["receivable_id"] for r in selected],
         "total_amount": round(sum(r["amount"] for r in selected), 2),
         "note": "Simulated send -- no real messaging integration in this build. "

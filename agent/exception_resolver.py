@@ -32,6 +32,8 @@ try:
 except ImportError:
     genai = None
 
+from audit import log_audit
+
 MODEL = "gemini-3.5-flash-lite"
 BATCH_SIZE = 10
 
@@ -150,6 +152,12 @@ def main():
         for r in flagged[:5]:
             print(f"    [{r['order_ref']}] {r['flag_reason']}")
     print(f"  full report -> {out_path}")
+
+    log_audit({
+        "type": "exception_resolution_run",
+        "exceptions_processed": len(results), "llm_explained": llm_count,
+        "rule_based_fallback": len(results) - llm_count, "flagged_for_disagreement": len(flagged),
+    })
 
 
 if __name__ == "__main__":

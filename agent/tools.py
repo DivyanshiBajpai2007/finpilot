@@ -49,15 +49,27 @@ def reconciliation_summary(**_) -> dict:
     }
 
 
+CHECK_KEYS = ["order_matched", "payment_matched", "invoice_amount_matched",
+              "settlement_amount_matched", "timing_matched"]
+
+
+def _parse_check(v: str):
+    return {"True": True, "False": False, "": None}.get(v, None)
+
+
 def get_exception(order_ref: str, **_) -> dict:
-    """Full detail -- category, delta, resolution, explanation -- for one order."""
+    """Full detail -- category, delta, resolution, per-check breakdown,
+    confidence, explanation -- for one order. The checks/confidence come
+    straight from the deterministic matcher, not the LLM."""
     report = {r["order_ref"]: r for r in _load_csv("reconciliation_report.csv")}
     explanations = {r["order_ref"]: r for r in _load_csv("exception_explanations.csv")}
     row = report.get(order_ref)
     if row is None:
         return {"error": f"no record for {order_ref}"}
+    checks = {k: _parse_check(row.get(k, "")) for k in CHECK_KEYS}
     if row["status"] != "exception":
-        return {"order_ref": order_ref, "status": "matched",
+        return {"order_ref": order_ref, "status": "matched", "checks": checks,
+                 "confidence": row.get("confidence"),
                  "note": "This record matched cleanly -- no exception."}
     explanation = explanations.get(order_ref)
     return {
@@ -65,9 +77,34 @@ def get_exception(order_ref: str, **_) -> dict:
         "category": row["category"],
         "resolution": row["resolution"],
         "delta": row["delta"],
+        "confidence": row.get("confidence"),
+        "checks": checks,
         "rule_based_note": row["note"],
         "explanation": explanation["explanation"] if explanation else row["note"],
         "llm_used": explanation["llm_used"] if explanation else "False",
+        **_amounts_for(order_ref),
+    }
+
+
+def _amounts_for(order_ref: str) -> dict:
+    """Raw expected-vs-settled figures for the exception detail view --
+    pulled straight from payments.csv/bank.csv, not derived or guessed."""
+    payments = {r["order_ref"]: r for r in _load_csv("payments.csv")}
+    bank_rows = {}
+    for r in _load_csv("bank.csv"):
+        bank_rows.setdefault(r["batch_ref"], []).append(r)
+    pay = payments.get(order_ref)
+    if not pay:
+        return {}
+    expected_net = round(float(pay["amount"]) - float(pay["fee"]), 2)
+    settlements = bank_rows.get(order_ref, [])
+    settled = round(sum(float(b["credit"]) for b in settlements), 2) if settlements else None
+    return {
+        "payment_amount": pay["amount"],
+        "fee": pay["fee"],
+        "expected_net": expected_net,
+        "settled_amount": settled,
+        "difference": round(settled - expected_net, 2) if settled is not None else None,
     }
 
 

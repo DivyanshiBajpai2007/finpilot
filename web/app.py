@@ -30,6 +30,7 @@ except Exception:
 
 import tools  # agent/tools.py
 import recovery  # agent/recovery.py
+import audit  # agent/audit.py
 
 try:
     from google import genai
@@ -156,7 +157,7 @@ def recovery_draft(req: RecoveryDraftRequest):
         for rid in req.receivable_ids
     ]
     recovery.log_audit({
-        "action": "recovery_reminders_drafted", "source": "web",
+        "type": "recovery", "action": "recovery_reminders_drafted", "source": "web",
         "receivables": req.receivable_ids,
         "total_amount": round(sum(d["amount"] for d in drafts), 2),
     })
@@ -184,7 +185,7 @@ def recovery_send(req: RecoverySendRequest):
         for r in selected
     ])
     recovery.log_audit({
-        "action": "recovery_reminders_sent", "source": "web",
+        "type": "recovery", "action": "recovery_reminders_sent", "source": "web",
         "receivables": req.receivable_ids,
         "total_amount": round(sum(r["amount"] for r in selected), 2),
         "note": "Simulated send -- no real messaging integration in this build. "
@@ -212,6 +213,46 @@ def ask(req: AskRequest, request: Request):
         "answer": result["answer"],
         "tool_calls": [t["tool"] for t in result["tool_calls"]],
     }
+
+
+def _format_activity(entry: dict) -> dict:
+    """Turn a raw audit-log entry into a display line. Every field used
+    here comes straight from a real logged event -- nothing is narrated."""
+    t = entry.get("type")
+    if t == "reconciliation_run":
+        return {"icon": "check",
+                "text": f"Reconciled {entry['total_records']} records — "
+                        f"{entry['matched']} matched, {entry['exceptions']} exceptions "
+                        f"({entry['match_rate_pct']}% match rate)"}
+    if t == "exception_resolution_run":
+        return {"icon": "check",
+                "text": f"Investigated {entry['exceptions_processed']} exceptions "
+                        f"({entry['llm_explained']} explained by Gemini, "
+                        f"{entry['rule_based_fallback']} rule-based fallback)"}
+    if t == "agent_ask":
+        tools_used = ", ".join(tc["tool"] for tc in entry.get("tool_calls", []))
+        suffix = f" (used: {tools_used})" if tools_used else ""
+        return {"icon": "check", "text": f'Answered "{entry["question"]}"{suffix}'}
+    if t == "recovery":
+        action = entry.get("action")
+        n = len(entry.get("receivables", []))
+        if action == "recovery_reminders_drafted":
+            return {"icon": "check", "text": f"Drafted {n} recovery reminder(s) "
+                                              f"(₹{entry.get('total_amount', 0):,.0f}) — awaiting human approval"}
+        if action == "recovery_reminders_rejected":
+            return {"icon": "warn", "text": f"Recovery reminders for {n} receivable(s) rejected — nothing sent"}
+        if action == "recovery_reminders_sent":
+            return {"icon": "check", "text": f"Sent {n} reminder(s) (simulated, ₹{entry.get('total_amount', 0):,.0f}) "
+                                              f"— human approved"}
+    return {"icon": "check", "text": t or "event"}
+
+
+@app.get("/api/activity")
+def activity(limit: int = 12):
+    entries = audit.read_recent(limit=limit)
+    return {"activity": [
+        {**_format_activity(e), "timestamp": e.get("timestamp")} for e in entries
+    ]}
 
 
 @app.get("/api/health")

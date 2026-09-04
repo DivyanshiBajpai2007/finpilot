@@ -16,6 +16,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from agent.audit import log_audit  # noqa: E402
+
 ROUNDING_TOLERANCE = 2.0       # rupees; below this, treat as float/paisa noise
 FEE_ADJUSTMENT_CEILING = 0.05  # delta up to 5% of amount reads as a fee/deduction, not an anomaly
 EXPECTED_SETTLEMENT_LAG = 1    # days, bank value_date - payment.settled_at
@@ -24,6 +27,10 @@ DELAYED_SETTLEMENT_CEILING = 6  # days; beyond this it's a review item, not an a
 AUTO_RESOLVED = "resolved_automatically"
 NEEDS_REVIEW = "needs_review"
 INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+CHECK_KEYS = ["order_matched", "payment_matched", "invoice_amount_matched",
+              "settlement_amount_matched", "timing_matched"]
 
 
 @dataclass
@@ -35,6 +42,10 @@ class Record:
     confidence: float
     note: str
     delta: float = 0.0
+    # Each value is True / False / None ("not checked" -- e.g. no invoice
+    # means invoice_amount_matched has nothing to compare). This is the
+    # actual per-check breakdown the matcher computed, not a summary of it.
+    checks: dict = field(default_factory=dict)
 
 
 def load_csv(path: Path) -> list[dict]:
@@ -61,7 +72,10 @@ def reconcile_order(order_ref: str, pay_rows, inv_rows, bank_rows) -> Record:
         # Shouldn't happen from our generator, but a bank/invoice row with
         # no matching payment is exactly the kind of thing a real feed produces.
         return Record(order_ref, "exception", "unmatched_source_record",
-                      NEEDS_REVIEW, 0.0, "Bank/invoice record with no matching payment.")
+                      NEEDS_REVIEW, 0.0, "Bank/invoice record with no matching payment.",
+                      checks={"order_matched": True, "payment_matched": False,
+                              "invoice_amount_matched": None, "settlement_amount_matched": None,
+                              "timing_matched": None})
 
     if len(bank_rows) > 1:
         total = sum(float(r["credit"]) for r in bank_rows)
@@ -69,17 +83,26 @@ def reconcile_order(order_ref: str, pay_rows, inv_rows, bank_rows) -> Record:
                       NEEDS_REVIEW, 0.3,
                       f"{len(bank_rows)} settlement rows for one payment "
                       f"(₹{total:,.2f} total credited) — looks like a duplicate payout.",
-                      delta=total - float(pay["amount"]))
+                      delta=total - float(pay["amount"]),
+                      checks={"order_matched": True, "payment_matched": True,
+                              "invoice_amount_matched": None, "settlement_amount_matched": False,
+                              "timing_matched": None})
 
     if not bank_rows:
         return Record(order_ref, "exception", "missing_bank_record",
                        INSUFFICIENT_EVIDENCE, 0.5,
-                       "Payment and invoice exist but no bank settlement yet — likely in transit.")
+                       "Payment and invoice exist but no bank settlement yet — likely in transit.",
+                       checks={"order_matched": True, "payment_matched": True,
+                               "invoice_amount_matched": None, "settlement_amount_matched": None,
+                               "timing_matched": None})
 
     if inv is None:
         return Record(order_ref, "exception", "missing_invoice",
                        NEEDS_REVIEW, 0.4,
-                       "Payment settled but no invoice was raised for it.")
+                       "Payment settled but no invoice was raised for it.",
+                       checks={"order_matched": True, "payment_matched": True,
+                               "invoice_amount_matched": False, "settlement_amount_matched": None,
+                               "timing_matched": None})
 
     bank = bank_rows[0]
     amount = float(pay["amount"])
@@ -97,18 +120,21 @@ def reconcile_order(order_ref: str, pay_rows, inv_rows, bank_rows) -> Record:
     amount_match = abs(invoice_delta) < 0.01
     fee_match = abs(net_delta) < ROUNDING_TOLERANCE
     date_match = 0 <= lag <= EXPECTED_SETTLEMENT_LAG
+    checks = {"order_matched": True, "payment_matched": True,
+              "invoice_amount_matched": amount_match, "settlement_amount_matched": fee_match,
+              "timing_matched": date_match}
 
     if amount_match and fee_match and date_match:
         return Record(order_ref, "matched", "clean", "", 0.99,
                        "Payment, settlement and invoice agree within tolerance.",
-                       delta=net_delta)
+                       delta=net_delta, checks=checks)
 
     if not amount_match:
         return Record(order_ref, "exception", "invoice_amount_mismatch",
                        NEEDS_REVIEW, 0.4,
                        f"Invoice ₹{invoice_amount:,.2f} vs payment ₹{amount:,.2f} "
                        f"(Δ ₹{invoice_delta:,.2f}) — needs a human to confirm which is correct.",
-                       delta=invoice_delta)
+                       delta=invoice_delta, checks=checks)
 
     if not fee_match and abs(net_delta) <= amount * FEE_ADJUSTMENT_CEILING:
         return Record(order_ref, "exception", "settlement_fee_adjustment",
@@ -116,14 +142,14 @@ def reconcile_order(order_ref: str, pay_rows, inv_rows, bank_rows) -> Record:
                        f"Settlement is ₹{abs(net_delta):,.2f} "
                        f"{'below' if net_delta < 0 else 'above'} the expected net — "
                        "consistent with an additional deduction/GST rounding on the payout.",
-                       delta=net_delta)
+                       delta=net_delta, checks=checks)
 
     if not fee_match:
         return Record(order_ref, "exception", "amount_anomaly",
                        NEEDS_REVIEW, 0.2,
                        f"Settlement credit (₹{credit:,.2f}) is far from the expected net "
                        f"(₹{expected_net:,.2f}) — too large to explain as a fee. Flagged for review.",
-                       delta=net_delta)
+                       delta=net_delta, checks=checks)
 
     if lag > EXPECTED_SETTLEMENT_LAG:
         resolution = AUTO_RESOLVED if lag <= DELAYED_SETTLEMENT_CEILING else NEEDS_REVIEW
@@ -131,12 +157,12 @@ def reconcile_order(order_ref: str, pay_rows, inv_rows, bank_rows) -> Record:
                        resolution, 0.75 if resolution == AUTO_RESOLVED else 0.3,
                        f"Settlement landed {lag} days after processing "
                        f"(expected {EXPECTED_SETTLEMENT_LAG}) — bank-side delay.",
-                       delta=float(lag))
+                       delta=float(lag), checks=checks)
 
     return Record(order_ref, "exception", "rounding_drift",
                    AUTO_RESOLVED, 0.85,
                    f"Δ ₹{net_delta:,.2f} — within paisa/rounding noise.",
-                   delta=net_delta)
+                   delta=net_delta, checks=checks)
 
 
 def run(data_dir: Path) -> list[Record]:
@@ -159,15 +185,20 @@ def write_report(records: list[Record], out_path: Path):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
-            "order_ref", "status", "category", "resolution", "confidence", "delta", "note"
+            "order_ref", "status", "category", "resolution", "confidence", "delta", "note",
+            *CHECK_KEYS,
         ])
         writer.writeheader()
         for r in records:
-            writer.writerow({
+            row = {
                 "order_ref": r.order_ref, "status": r.status, "category": r.category,
                 "resolution": r.resolution, "confidence": f"{r.confidence:.2f}",
                 "delta": f"{r.delta:.2f}", "note": r.note,
-            })
+            }
+            for k in CHECK_KEYS:
+                v = r.checks.get(k)
+                row[k] = "" if v is None else str(v)
+            writer.writerow(row)
 
 
 def print_summary(records: list[Record]):
@@ -238,6 +269,14 @@ def main():
     print_summary(records)
     evaluate_against_ground_truth(records, args.data_dir)
     print(f"\n  full report -> {out_path}")
+
+    matched = sum(1 for r in records if r.status == "matched")
+    log_audit({
+        "type": "reconciliation_run",
+        "total_records": len(records), "matched": matched,
+        "exceptions": len(records) - matched,
+        "match_rate_pct": round(matched / len(records) * 100, 1) if records else 0,
+    })
 
 
 if __name__ == "__main__":

@@ -15,10 +15,8 @@ Usage:
     python controller.py                 # interactive REPL
 """
 import argparse
-import json
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -35,9 +33,9 @@ except ImportError:
     types = None
 
 from tools import TOOL_SPECS, call_tool
+from audit import log_audit
 
 MODEL = "gemini-3.5-flash-lite"
-AUDIT_LOG = Path(__file__).parent.parent / "data" / "audit_log.jsonl"
 
 SYSTEM_PROMPT = """You are FinPilot, an autonomous finance controller for a small \
 business, built for the Razorpay AI Buildathon's Finance Controller track. You have \
@@ -62,13 +60,6 @@ each message before anything is sent.
 When you recommend an action, say what it costs and what it's expected to achieve, \
 and make clear a human still has to approve it -- you are not authorized to execute \
 anything yourself. Keep answers short and concrete."""
-
-
-def log_audit(entry: dict):
-    AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    entry = {"timestamp": datetime.now(timezone.utc).isoformat(), "model": MODEL, **entry}
-    with AUDIT_LOG.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
 
 
 def build_tools():
@@ -96,7 +87,8 @@ def ask(client, question: str, history: list) -> dict:
         function_calls = [p.function_call for p in candidate.content.parts if p.function_call]
         if not function_calls:
             final_text = "".join(p.text for p in candidate.content.parts if p.text)
-            log_audit({"question": question, "tool_calls": tool_calls_this_turn, "answer": final_text})
+            log_audit({"type": "agent_ask", "model": MODEL, "question": question,
+                       "tool_calls": tool_calls_this_turn, "answer": final_text})
             history[:] = contents
             return {"answer": final_text, "tool_calls": tool_calls_this_turn}
 
