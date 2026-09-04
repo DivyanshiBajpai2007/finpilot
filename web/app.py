@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -102,6 +102,26 @@ def exception_detail(order_ref: str):
 @app.get("/api/cashflow")
 def cashflow(opening_balance: float = 1_500_000.0, min_buffer: float = 100_000.0, horizon: int = 90):
     return tools.cashflow_snapshot(opening_balance=opening_balance, min_buffer=min_buffer, horizon=horizon)
+
+
+@app.get("/api/cashflow/curve")
+def cashflow_curve(opening_balance: float = 1_500_000.0, min_buffer: float = 100_000.0, horizon: int = 90):
+    """Dashboard-only detail endpoint -- the full daily balance curve, not
+    just the four snapshot points cashflow_snapshot gives the agent. Reuses
+    the same deterministic project() function, just asks for more of it."""
+    from forecasting.cashflow import load_expenses, project
+    expenses = load_expenses(ROOT / "data" / "expenses.csv")
+    as_of = date(2026, 8, 30)
+    curve, shortfall_day = project(opening_balance, expenses, as_of, horizon, min_buffer)
+    return {
+        "as_of": as_of.isoformat(),
+        "min_buffer": min_buffer,
+        "shortfall_day": shortfall_day,
+        "points": [
+            {"day": d, "date": (as_of + timedelta(days=d)).isoformat(), "balance": round(b, 2)}
+            for d, b in curve
+        ],
+    }
 
 
 @app.get("/api/receivables")
