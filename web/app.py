@@ -207,8 +207,11 @@ def ask(req: AskRequest, request: Request):
         raise HTTPException(429, f"Rate limit: max {ASK_LIMIT} questions per {ASK_WINDOW_SECONDS}s. Try again shortly.")
 
     import controller  # imported lazily so a missing key never breaks the other routes
-    answer = controller.ask(_gemini_client, req.question, [])
-    return {"answer": answer}
+    result = controller.ask(_gemini_client, req.question, [])
+    return {
+        "answer": result["answer"],
+        "tool_calls": [t["tool"] for t in result["tool_calls"]],
+    }
 
 
 @app.get("/api/health")

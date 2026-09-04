@@ -80,7 +80,10 @@ def build_tools():
     ])]
 
 
-def ask(client, question: str, history: list) -> str:
+def ask(client, question: str, history: list) -> dict:
+    """Returns {"answer": str, "tool_calls": [{"tool", "input", "result"}, ...]}
+    -- the tool_calls list is what lets a UI show the agent actually working
+    (which tools it called, with what inputs), not just returning text."""
     contents = history + [types.Content(role="user", parts=[types.Part(text=question)])]
     tool_calls_this_turn = []
     config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, tools=build_tools())
@@ -95,7 +98,7 @@ def ask(client, question: str, history: list) -> str:
             final_text = "".join(p.text for p in candidate.content.parts if p.text)
             log_audit({"question": question, "tool_calls": tool_calls_this_turn, "answer": final_text})
             history[:] = contents
-            return final_text
+            return {"answer": final_text, "tool_calls": tool_calls_this_turn}
 
         response_parts = []
         for fc in function_calls:
@@ -118,8 +121,11 @@ def run_repl(client):
             break
         if not question or question.lower() in ("exit", "quit"):
             break
-        answer = ask(client, question, history)
-        print(f"\nFinPilot > {answer}\n")
+        result = ask(client, question, history)
+        if result["tool_calls"]:
+            used = ", ".join(t["tool"] for t in result["tool_calls"])
+            print(f"  [used: {used}]")
+        print(f"\nFinPilot > {result['answer']}\n")
 
 
 def main():
@@ -139,7 +145,10 @@ def main():
 
     client = genai.Client(api_key=api_key)
     if args.ask:
-        print(ask(client, args.ask, []))
+        result = ask(client, args.ask, [])
+        if result["tool_calls"]:
+            print(f"[used: {', '.join(t['tool'] for t in result['tool_calls'])}]")
+        print(result["answer"])
     else:
         run_repl(client)
 
