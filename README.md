@@ -6,6 +6,8 @@ It reconciles a business's payments against its bank settlements and invoices, e
 
 > The official track brief: *"Build an agent that closes one finance-ops loop across a 50+ record batch of synthetic data, reporting its match rate and the exceptions it could not resolve."* Evaluation bar: *"throughput plus measured accuracy plus an honest exception list."* Everything below is built and measured against that bar directly — see [Results](#results).
 
+**Live demo:** [finpilot-a0yd.onrender.com](https://finpilot-a0yd.onrender.com) — free tier, so the first request after idle can take ~30s to wake up.
+
 ## Quick start
 
 ```bash
@@ -44,7 +46,7 @@ pip install -r requirements.txt
 uvicorn web.app:app --reload --port 8710
 ```
 
-**Deploy (Render, free tier):**
+**Already deployed** at [finpilot-a0yd.onrender.com](https://finpilot-a0yd.onrender.com). To deploy your own copy (Render, free tier):
 
 1. [Deploy to Render](https://render.com/deploy?repo=https://github.com/DivyanshiBajpai2007/finpilot) — this repo includes `render.yaml`, which Render auto-detects. If the button doesn't pick it up, create a new **Web Service** manually, connect this repo, and Render should read the blueprint automatically.
 2. In the service's **Environment** tab, add `GEMINI_API_KEY` with your key — `render.yaml` deliberately leaves it unset (`sync: false`) so it's never stored in the repo.
