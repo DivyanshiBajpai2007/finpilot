@@ -165,6 +165,11 @@
   #confirm-row { display:none; align-items:center; gap:10px; margin-top:14px; padding-top:14px;
     border-top:1px solid var(--rule); flex-wrap:wrap; }
 
+  #wake-status:empty { display:none; }
+  #wake-status { background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn);
+    border-radius:8px; padding:10px 14px; font-size:13px; font-family:'IBM Plex Mono',monospace;
+    margin-bottom:20px; }
+
   /* ---- chat ---- */
   #chat-log { display:flex; flex-direction:column; gap:10px; margin-bottom:14px; max-height:360px; overflow-y:auto; }
   .msg { padding:11px 14px; border-radius:12px; font-size:14px; max-width:82%; white-space:pre-wrap; animation:pop .2s ease; }
@@ -209,6 +214,8 @@
       </button>
     </div>
   </header>
+
+  <p id="wake-status"></p>
 
   <div class="hero reveal">
     <div class="hero-stat">
@@ -299,6 +306,34 @@ async function api(path, opts) {
   return body;
 }
 
+/* Render's free tier spins the instance down after idle -- the first
+   request after that can take 30-60s to even get a response, and a plain
+   fetch() either hangs past a reasonable UX window or the browser times
+   it out as a network error. Boot-time calls retry with backoff and show
+   a visible status instead of dying in a permanent "Loading…" state. */
+function setWakeStatus(msg) {
+  const el = $('wake-status');
+  if (el) el.textContent = msg || '';
+}
+async function apiWithRetry(path, {attempts = 6, baseDelayMs = 4000} = {}) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const result = await api(path);
+      setWakeStatus('');
+      return result;
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) {
+        setWakeStatus(`Waking up the server (Render free tier) — retrying… (${i + 1}/${attempts})`);
+        await new Promise(r => setTimeout(r, baseDelayMs));
+      }
+    }
+  }
+  setWakeStatus('Could not reach the server after several attempts — it may still be starting. Try reloading in a moment.');
+  throw lastErr;
+}
+
 /* ---- theme ---- */
 function applyTheme(t) {
   if (t) document.documentElement.setAttribute('data-theme', t);
@@ -324,20 +359,28 @@ document.querySelectorAll('.reveal').forEach(el => io.observe(el));
 
 /* ---- count-up ---- */
 function countUp(el, to, decimals, suffix) {
+  const finalText = to.toFixed(decimals) + suffix;
+  // rAF never fires in a hidden/backgrounded tab -- show the real value
+  // immediately rather than leaving it stuck at 0 until the tab is seen.
+  if (document.hidden) { el.textContent = finalText; return; }
   const dur = 900, start = performance.now();
+  let settled = false;
+  function finish() { if (!settled) { settled = true; el.textContent = finalText; } }
   function tick(now) {
+    if (document.hidden) { finish(); return; }
     const p = Math.min(1, (now - start) / dur);
     const eased = 1 - Math.pow(1 - p, 3);
     el.textContent = (to * eased).toFixed(decimals) + suffix;
-    if (p < 1) requestAnimationFrame(tick);
+    if (p < 1) requestAnimationFrame(tick); else finish();
   }
   requestAnimationFrame(tick);
+  setTimeout(finish, dur + 400); // safety net if rAF stalls for any reason
 }
 
 /* ---- health ---- */
 async function loadHealth() {
   try {
-    const h = await api('/api/health');
+    const h = await apiWithRetry('/api/health');
     $('health-pill').textContent = h.gemini_configured ? 'agent: live' : 'agent: no key';
     $('health-pill').className = 'pill ' + (h.gemini_configured ? 'on' : 'off');
     $('chat-hint').textContent = h.gemini_configured
@@ -348,7 +391,7 @@ async function loadHealth() {
 
 /* ---- summary + hero ---- */
 async function loadSummary() {
-  const s = await api('/api/summary');
+  const s = await apiWithRetry('/api/summary');
   countUp($('hero-match'), s.match_rate_pct, 1, '%');
   $('hero-sub').textContent = `${s.matched} of ${s.total_records} records matched on a live, reproducible run.`;
   $('mini-matched').textContent = `${s.matched} / ${s.total_records}`;
@@ -359,7 +402,7 @@ async function loadSummary() {
 /* ---- exceptions table ---- */
 async function loadExceptions(resolution) {
   const q = resolution ? `?resolution=${encodeURIComponent(resolution)}&limit=25` : '?limit=25';
-  const e = await api('/api/exceptions' + q);
+  const e = await apiWithRetry('/api/exceptions' + q);
   $('exceptions-body').innerHTML = e.exceptions.map(x => `
     <tr data-order="${x.order_ref}">
       <td>${x.order_ref}</td><td>${x.category}</td>
@@ -392,7 +435,7 @@ $('detail-backdrop').onclick = (e) => { if (e.target.id === 'detail-backdrop') e
 /* ---- cash-flow chart ---- */
 let cashflowChart;
 async function loadCashflowChart() {
-  const c = await api('/api/cashflow/curve');
+  const c = await apiWithRetry('/api/cashflow/curve');
   const labels = c.points.map(p => p.date.slice(5));
   const balances = c.points.map(p => p.balance);
   const buffer = c.points.map(() => c.min_buffer);
@@ -453,7 +496,7 @@ function refreshChartColors() {
 /* ---- receivables ---- */
 let receivablesCache = [];
 async function loadReceivables() {
-  const r = await api('/api/receivables?limit=10');
+  const r = await apiWithRetry('/api/receivables?limit=10');
   receivablesCache = r.top;
   const maxVal = Math.max(...r.top.map(x => x.expected_value), 1);
   $('receivables-panel').innerHTML = r.top.map(x => `
