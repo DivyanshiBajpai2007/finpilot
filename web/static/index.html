@@ -325,7 +325,10 @@ function setWakeStatus(msg) {
   const el = $('wake-status');
   if (el) el.textContent = msg || '';
 }
-async function apiWithRetry(path, {attempts = 6, baseDelayMs = 4000} = {}) {
+async function apiWithRetry(path, {attempts = 15, baseDelayMs = 5000} = {}) {
+  // Render's free tier can take up to ~60-90s to wake a fully asleep
+  // instance, not just the first request -- 15 x 5s gives ~75s of budget
+  // before giving up, with a manual retry button as the last resort.
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -335,12 +338,18 @@ async function apiWithRetry(path, {attempts = 6, baseDelayMs = 4000} = {}) {
     } catch (e) {
       lastErr = e;
       if (i < attempts - 1) {
-        setWakeStatus(`Waking up the server (Render free tier) — retrying… (${i + 1}/${attempts})`);
+        setWakeStatus(`Waking up the server (Render free tier can take up to a minute) — retrying… (${i + 1}/${attempts})`);
         await new Promise(r => setTimeout(r, baseDelayMs));
       }
     }
   }
-  setWakeStatus('Could not reach the server after several attempts — it may still be starting. Try reloading in a moment.');
+  setWakeStatus('');
+  const el = $('wake-status');
+  if (el) {
+    el.innerHTML = 'Still could not reach the server after ~75s. ' +
+      '<button id="manual-retry-btn" class="secondary" style="margin-left:8px;padding:5px 12px;font-size:12px">Retry now</button>';
+    document.getElementById('manual-retry-btn').onclick = () => location.reload();
+  }
   throw lastErr;
 }
 
