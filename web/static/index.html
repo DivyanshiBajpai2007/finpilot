@@ -222,8 +222,12 @@
 
   #wake-status:empty { display:none; }
   #wake-status { background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn);
-    border-radius:8px; padding:10px 14px; font-size:13px; font-family:'IBM Plex Mono',monospace;
-    margin-bottom:20px; }
+    border-radius:8px; padding:12px 16px; font-size:13.5px; font-family:'IBM Plex Mono',monospace;
+    margin-bottom:20px; line-height:1.7; transition:background .3s ease, border-color .3s ease, color .3s ease; }
+  #wake-status.boot { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
+  #wake-status.ready { background:var(--good-soft); color:var(--good); border-color:var(--good); }
+  #wake-status .boot-sub { display:block; font-size:12px; opacity:.85; font-weight:400; }
+  #wake-status strong { font-family:'Public Sans',sans-serif; }
 
   /* ---- chat ---- */
   #chat-log { display:flex; flex-direction:column; gap:10px; margin-bottom:14px; max-height:360px; overflow-y:auto; }
@@ -468,6 +472,7 @@ async function loadSummary() {
   $('mini-matched').textContent = `${s.matched} / ${s.total_records}`;
   $('mini-exceptions').textContent = s.exceptions;
   buildDoughnut(s.exceptions_by_category, s.exceptions);
+  return s;
 }
 
 /* ---- exceptions table ---- */
@@ -743,12 +748,35 @@ $('chat-form').onsubmit = async (e) => {
 };
 
 /* ---- boot ---- */
-loadHealth();
-loadSummary().catch(e => console.error('loadSummary failed', e));
-loadExceptions('').catch(e => $('exceptions-body').innerHTML = `<tr><td colspan="5">Error: ${e.message}</td></tr>`);
-loadCashflowChart().catch(e => { $('mini-shortfall').textContent = 'error'; });
-loadReceivables().catch(e => $('receivables-panel').innerHTML = `<p class="muted">Error: ${e.message}</p>`);
-loadActivity().catch(e => $('activity-feed').innerHTML = `<p class="muted">Error: ${e.message}</p>`);
+async function bootSequence() {
+  const el = $('wake-status');
+  el.classList.add('boot');
+  el.innerHTML = '🟡 <strong>Starting FinPilot…</strong><br>' +
+    '<span class="boot-sub">Waking the finance controller — this can take a few seconds on the first request.</span>';
+
+  try {
+    await apiWithRetry('/api/health');  // shows its own "waking up… retrying" text if this is slow
+    el.innerHTML = '✓ Connected to finance engine<br><span class="boot-sub">⏳ Loading dataset…</span>';
+
+    const s = await loadSummary();
+    el.innerHTML = `✓ Loaded ${s.total_records} records<br><span class="boot-sub">⏳ Running reconciliation…</span>`;
+    await new Promise(r => setTimeout(r, 450));  // brief pause so the stage is actually readable
+
+    el.classList.add('ready');
+    el.innerHTML = `🟢 <strong>FinPilot ready</strong> — ${s.total_records} records processed • ` +
+      `${s.match_rate_pct}% match rate • ${s.exceptions} exceptions`;
+    setTimeout(() => { el.textContent = ''; el.classList.remove('boot', 'ready'); }, 2600);
+  } catch (e) {
+    // apiWithRetry already wrote its own "could not reach the server" + retry button into el
+  }
+
+  loadHealth().catch(e => console.error('loadHealth failed', e));
+  loadExceptions('').catch(e => $('exceptions-body').innerHTML = `<tr><td colspan="5">Error: ${e.message}</td></tr>`);
+  loadCashflowChart().catch(e => { $('mini-shortfall').textContent = 'error'; });
+  loadReceivables().catch(e => $('receivables-panel').innerHTML = `<p class="muted">Error: ${e.message}</p>`);
+  loadActivity().catch(e => $('activity-feed').innerHTML = `<p class="muted">Error: ${e.message}</p>`);
+}
+bootSequence();
 </script>
 </body>
 </html>
