@@ -6,7 +6,7 @@ It reconciles a business's payments against its bank settlements and invoices, e
 
 > The official track brief: *"Build an agent that closes one finance-ops loop across a 50+ record batch of synthetic data, reporting its match rate and the exceptions it could not resolve."* Evaluation bar: *"throughput plus measured accuracy plus an honest exception list."* Everything below is built and measured against that bar directly — see [Results](#results).
 
-**Live demo:** [finpilot-a0yd.onrender.com](https://finpilot-a0yd.onrender.com) — free tier, so the first request after idle can take ~30s to wake up.
+**Live demo:** [finpilot-a0yd.onrender.com](https://finpilot-a0yd.onrender.com) — free tier, so the first request after idle can take 30–90 seconds to wake up. The page shows a live boot sequence (`Starting → Connected → Loaded N records → Running reconciliation → Ready`) while this happens rather than a bare loading spinner, and retries automatically. If you're demoing it live, open the link a minute or two beforehand so it's already warm.
 
 ## Quick start
 
@@ -37,7 +37,16 @@ python agent/recovery.py --top 3          # interactive y/N approval gate
 
 ## Web dashboard
 
-`web/app.py` is a thin FastAPI layer over the exact same modules used by the CLI — no duplicated logic. It serves a live dashboard (reconciliation summary, exceptions, cash forecast, receivables) plus the conversational agent, and keeps the same governance model: `simulate_recovery` is read-only, and actually recording a "sent" reminder requires an explicit `confirm: true` the frontend only sends after a human checks a confirmation box.
+`web/app.py` is a thin FastAPI layer over the exact same modules used by the CLI — no duplicated logic. The agent's conversation is the primary interface (not a bolted-on chatbox), with the reconciliation/cash-flow/receivables data as supporting evidence below it:
+
+- **Ask FinPilot** — grounded chat that shows which tools the agent called (e.g. `⚙ get_exception`) before its answer, not just the final text
+- **▶ Run reconciliation** — a staged reveal of the real `/api/summary` result (records → matched → exceptions → match rate), explicitly labeled as reproducible, not a fake re-run
+- **Exception detail** — clicking any row shows expected/settled/difference, a five-point ✓/✗/· checklist (order, payment, invoice amount, settlement amount, timing matched) pulled from the matcher's real per-check output, classification, confidence %, and recommendation
+- **Agent activity feed** — a live-updating panel reading straight from `data/audit_log.jsonl`; every line is a real logged event (reconciliation runs, exception resolution, chat Q&A with tools used, recovery drafted/rejected/sent), not narrated text
+- **Receivables recovery flow** — simulate recovery → draft reminders → explicit human-approval checkbox → send (simulated), with the send button disabled until the checkbox is checked
+- An explicit on-screen line stating the deterministic/AI split, so the architecture claim is visible on the page itself, not only in this README
+
+Governance carries over from the CLI: `simulate_recovery` is read-only, and actually recording a "sent" reminder requires an explicit `confirm: true` the frontend only sends after a human checks a confirmation box.
 
 Run it locally:
 
@@ -81,10 +90,13 @@ The reconciliation engine, cash-flow forecaster, receivables ranking, and what-i
 finpilot/
   data/                  synthetic dataset generator + every run's output CSVs
   reconciliation/        matcher.py — the core deterministic reconciliation engine
-  agent/                 exception_resolver.py, controller.py (agent), recovery.py (bounded action), tools.py
+  agent/                 exception_resolver.py, controller.py (agent), recovery.py (bounded action),
+                          tools.py (agent-callable functions), audit.py (shared audit-log read/write)
   forecasting/           cashflow.py (forecaster), whatif.py (recovery simulator)
   receivables/           ranking.py — expected-value ranking of outstanding invoices
+  web/                   app.py (FastAPI layer over the same modules above), static/index.html (dashboard)
   run_pipeline.py        one-command reproduction of every non-interactive step
+  render.yaml            Render deploy blueprint
 ```
 
 ## Results
@@ -108,7 +120,7 @@ Exception categories are never silently dropped — every one is written to the 
 - The reconciliation engine, forecaster, ranking, and simulator are deterministic — no LLM call can change a number they produce.
 - The agent's system prompt explicitly forbids inventing tool *inputs* (like an assumed opening balance), not just outputs — this was a real bug caught in testing and fixed.
 - `simulate_recovery` is read-only. The only action that touches the outside world (`agent/recovery.py`) requires a human to see the exact drafted message and type `y` before anything is recorded as sent.
-- Every agent turn and every recovery action (drafted / approved / rejected / sent) is appended to `data/audit_log.jsonl`, traceable back to the exact tool calls and inputs behind it.
+- Every agent turn, every recovery action (drafted / approved / rejected / sent), and every reconciliation/exception-resolution run is appended to `data/audit_log.jsonl` — surfaced live in the dashboard's **Agent activity** panel, not just written to a file nobody sees.
 
 ## Honest limitations
 
