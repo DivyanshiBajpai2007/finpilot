@@ -455,6 +455,10 @@ function countUp(el, to, decimals, suffix) {
 
 /* ---- health ---- */
 async function loadHealth() {
+  // The ONLY place that calls apiWithRetry('/api/health') -- bootSequence
+  // reuses this instead of polling health a second, independent time,
+  // which used to start a second retry cycle that stomped on the
+  // "ready" message right after it appeared.
   try {
     const h = await apiWithRetry('/api/health');
     $('health-pill').textContent = h.gemini_configured ? 'agent: live' : 'agent: no key';
@@ -462,7 +466,8 @@ async function loadHealth() {
     $('chat-hint').textContent = h.gemini_configured
       ? 'Live via Gemini, rate-limited to 8 questions/minute.'
       : 'GEMINI_API_KEY not set on the server — ask is unavailable.';
-  } catch (e) { $('health-pill').textContent = 'agent: unknown'; }
+    return h;
+  } catch (e) { $('health-pill').textContent = 'agent: unknown'; throw e; }
 }
 
 /* ---- summary + hero ---- */
@@ -755,7 +760,7 @@ async function bootSequence() {
     '<span class="boot-sub">Waking the finance controller — this can take a few seconds on the first request.</span>';
 
   try {
-    await apiWithRetry('/api/health');  // shows its own "waking up… retrying" text if this is slow
+    await loadHealth();  // shows its own "waking up… retrying" text if this is slow; sets the health pill too
     el.innerHTML = '✓ Connected to finance engine<br><span class="boot-sub">⏳ Loading dataset…</span>';
 
     const s = await loadSummary();
@@ -767,10 +772,10 @@ async function bootSequence() {
       `${s.match_rate_pct}% match rate • ${s.exceptions} exceptions`;
     setTimeout(() => { el.textContent = ''; el.classList.remove('boot', 'ready'); }, 2600);
   } catch (e) {
-    // apiWithRetry already wrote its own "could not reach the server" + retry button into el
+    // apiWithRetry already wrote its own "could not reach the server" + retry button into el,
+    // and loadHealth() already set the health pill to "agent: unknown"
   }
 
-  loadHealth().catch(e => console.error('loadHealth failed', e));
   loadExceptions('').catch(e => $('exceptions-body').innerHTML = `<tr><td colspan="5">Error: ${e.message}</td></tr>`);
   loadCashflowChart().catch(e => { $('mini-shortfall').textContent = 'error'; });
   loadReceivables().catch(e => $('receivables-panel').innerHTML = `<p class="muted">Error: ${e.message}</p>`);
